@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>FloreSer e Análise de Área Acumulada</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    /* Layout Responsivo */
+    body, html {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+      background-color: #f4f4f4;
+    }
+
+    h2 {
+      text-align: center;
+      margin: 20px;
+      font-size: 1.8em;
+      color: #333;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      padding: 15px;
+    }
+
+    /* Filtros no topo */
+    .filter-container {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      margin: 15px 0;
+      flex-wrap: wrap;
+    }
+
+    .filter-item {
+      margin: 5px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* Botões e filtros com estilo moderno */
+    button, select, label {
+      font-size: 1.1em;
+      margin: 5px;
+    }
+
+    button {
+      padding: 8px 16px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+
+    button:hover {
+      background-color: #45a049;
+    }
+
+    select {
+      padding: 6px;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+      background-color: #fff;
+    }
+
+    /* Gráficos lado a lado */
+    .chart-container {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      margin: 20px;
+      flex-wrap: wrap;
+    }
+
+    .canvas {
+      width: 45%; /* Mantém a largura desejada */
+      max-width: 600px;
+      height: 160px; /* Altura significativamente achatada */
+      background-color: #fff;
+      border-radius: 15px;
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+      transition: transform 0.3s;
+      cursor: pointer;
+    }
+
+    .canvas:hover {
+      transform: scale(1.03);
+    }
+
+    /* Mapa abaixo dos gráficos */
+    #map {
+      height: 550px;
+      width: 85%;
+      margin: 20px auto;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    /* Modal para gráficos ampliados */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 9999;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.7);
+    }
+
+    .modal-content {
+      margin: 5% auto;
+      width: 80%;
+      max-width: 800px;
+      background-color: white;
+      border-radius: 10px;
+      padding: 20px;
+    }
+
+    .close {
+      float: right;
+      font-size: 1.2em;
+      cursor: pointer;
+      color: #aaa;
+    }
+
+    .close:hover {
+      color: #333;
+    }
+
+    /* Ajuste para dispositivos móveis */
+    @media (max-width: 768px) {
+      .chart-container {
+        flex-direction: column;
+        align-items: center;
+      }
+
+      .canvas {
+        width: 90%;
+        height: auto;
+      }
+
+      #map {
+        width: 95%;
+        height: 400px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h2>FloreSer e Análise de Área Acumulada</h2>
+
+  <!-- Container para filtros -->
+  <div class="filter-container">
+    <div class="filter-item">
+      <label for="stateFilter">Estado:</label>
+      <select id="stateFilter">
+        <option value="">Todos os Estados</option>
+      </select>
+    </div>
+    <div class="filter-item">
+      <label for="municipioFilter">Município:</label>
+      <select id="municipioFilter">
+        <option value="">Todos os Municípios</option>
+      </select>
+    </div>
+    <div class="filter-item">
+      <label for="startYear">Ano Inicial:</label>
+      <select id="startYear">
+        <script>
+          for (let year = 2008; year <= 2023; year++) {
+            document.write(`<option value="${year}">${year}</option>`);
+          }
+        </script>
+      </select>
+    </div>
+    <div class="filter-item">
+      <label for="endYear">Ano Final:</label>
+      <select id="endYear">
+        <script>
+          for (let year = 2008; year <= 2023; year++) {
+            if (year === 2023) {
+              document.write(`<option value="${year}" selected>${year}</option>`);
+            } else {
+              document.write(`<option value="${year}">${year}</option>`);
+            }
+          }
+        </script>
+      </select>
+    </div>
+    
+    <div class="filter-item">
+      <button id="applyYearFilter">Aplicar Filtro</button>
+    </div>
+  </div>
+
+  <!-- Gráficos lado a lado -->
+  <div class="chart-container">
+    <canvas id="areaChart" class="canvas"></canvas>
+    <canvas id="municipioChart" class="canvas"></canvas>
+  </div>
+
+  <!-- Modal para exibir gráficos ampliados -->
+  <div id="modalAreaChart" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closeModal('modalAreaChart')">&times;</span>
+      <canvas id="areaChartLarge"></canvas>
+    </div>
+  </div>
+
+  <div id="modalMunicipioChart" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closeModal('modalMunicipioChart')">&times;</span>
+      <canvas id="municipioChartLarge"></canvas>
+    </div>
+  </div>
+
+  <!-- Mapa abaixo dos gráficos -->
+  <div id="map"></div>
+
+  <script src="/script.js"></script>
+
+  <script>
+    function openModal(chartId) {
+      document.getElementById(chartId).style.display = 'block';
+    }
+
+    function closeModal(chartId) {
+      document.getElementById(chartId).style.display = 'none';
+    }
+
+    document.getElementById('areaChart').onclick = () => openModal('modalAreaChart');
+    document.getElementById('municipioChart').onclick = () => openModal('modalMunicipioChart');
+  </script>
+</body>
+</html>
