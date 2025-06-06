@@ -11,7 +11,7 @@ const privateKey = require('./privatekey.json');
 
 // Cria uma aplicação Express
 const app = express();
-const PORT = 3000;
+const PORT = 8053;
 
 // Middleware para servir arquivos estáticos da pasta 'public'
 app.use(express.static('public'));
