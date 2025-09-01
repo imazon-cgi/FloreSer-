@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>FloreSer e Análise de Área Acumulada</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <style>
+    :root {
+      --primary-color: #008055;
+      --primary-light: #008055;
+      --primary-dark: #003300;
+      --secondary-color: #00796B;
+      --accent-color: #FF6D00;
+      --text-color: #212121;
+      --text-light: #757575;
+      --background-color: #F5F5F5;
+      --card-color: #FFFFFF;
+      --border-radius: 10px;
+      --box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+      --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    }
+
+    /* Reset e estilos base */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body, html {
+      font-family: 'Montserrat', sans-serif;
+      background-color: var(--background-color);
+      color: var(--text-color);
+      line-height: 1.6;
+      overflow-x: hidden;
+      scroll-behavior: smooth;
+    }
+
+    /* Header com gradiente e efeito de profundidade */
+    .header {
+      background: linear-gradient(135deg,#F5F5F5,#F5F5F5);
+      color: white;
+      padding: 25px 0;
+      text-align: center;
+      position: relative;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      margin-bottom: 30px;
+    }
+
+    .header::after {
+      content: '';
+      position: absolute;
+      bottom: -10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100px;
+      height: 5px;
+      background-color: var(--accent-color);
+      border-radius: 5px;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 2.5em;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    .subtitle {
+      font-size: 1.2em;
+      opacity: 0.9;
+      margin-top: 8px;
+      font-weight: 300;
+    }
+
+    /* Container principal com layout flexível */
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 20px 40px;
+    }
+
+    /* Filtros com design moderno */
+    .filter-container {
+      background-color: var(--card-color);
+      padding: 20px;
+      border-radius: var(--border-radius);
+      box-shadow: var(--box-shadow);
+      margin-bottom: 30px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 15px;
+      position: relative;
+      z-index: 10;
+    }
+
+    .filter-item {
+      flex: 1;
+      min-width: 150px;
+      max-width: 200px;
+    }
+
+    .filter-label {
+      font-size: 0.9em;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--text-color);
+      display: block;
+    }
+
+    /* Botões e filtros com estilo moderno */
+    button, select {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 1em;
+      transition: var(--transition);
+      width: 100%;
+    }
+
+    button {
+      padding: 12px 20px;
+      background-color: var(--primary-color);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    button:hover {
+      background-color: var(--primary-dark);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    select {
+      padding: 12px 15px;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+      background-color: #fff;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      background-size: 16px;
+      padding-right: 40px;
+    }
+
+    select:hover {
+      border-color: var(--primary-light);
+    }
+
+    select:focus {
+      outline: none;
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 3px rgba(27, 94, 32, 0.2);
+    }
+
+    /* Layout de gráficos lado a lado */
+    .charts-section {
+      display: flex;
+      gap: 30px;
+      margin-bottom: 30px;
+    }
+
+    .chart-card {
+      flex: 1;
+      background-color: var(--card-color);
+      border-radius: var(--border-radius);
+      box-shadow: var(--box-shadow);
+      padding: 20px;
+      transition: var(--transition);
+      cursor: pointer;
+      min-width: 0; /* Importante para evitar overflow */
+    }
+
+    .chart-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    }
+
+    .chart-title {
+      font-size: 1.2em;
+      font-weight: 600;
+      margin-bottom: 15px;
+      color: var(--primary-dark);
+      text-align: center;
+      position: relative;
+      padding-bottom: 10px;
+    }
+
+    .chart-title::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 50px;
+      height: 3px;
+      background-color: var(--accent-color);
+      border-radius: 3px;
+    }
+
+    .canvas-container {
+      width: 100%;
+      height: 300px;
+      position: relative;
+    }
+
+    /* Mapa com design moderno */
+    .map-container {
+      background-color: var(--card-color);
+      border-radius: var(--border-radius);
+      box-shadow: var(--box-shadow);
+      padding: 20px;
+      margin-top: 10px;
+    }
+
+    .map-title {
+      font-size: 1.2em;
+      font-weight: 600;
+      margin-bottom: 15px;
+      color: var(--primary-dark);
+      position: relative;
+      padding-bottom: 10px;
+    }
+
+    .map-title::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 50px;
+      height: 3px;
+      background-color: var(--accent-color);
+      border-radius: 3px;
+    }
+
+    #map {
+      height: 550px;
+      width: 100%;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Modal para gráficos ampliados com design moderno */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 9999;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.7);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      backdrop-filter: blur(5px);
+    }
+
+    .modal.show {
+      opacity: 1;
+    }
+
+    .modal-content {
+      margin: 5% auto;
+      width: 80%;
+      max-width: 900px;
+      background-color: white;
+      border-radius: var(--border-radius);
+      padding: 25px;
+      box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+      transform: translateY(-20px);
+      transition: transform 0.3s ease;
+    }
+
+    .modal.show .modal-content {
+      transform: translateY(0);
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 15px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .modal-title {
+      font-size: 1.5em;
+      font-weight: 600;
+      color: var(--primary-dark);
+    }
+
+    .close {
+      font-size: 1.8em;
+      cursor: pointer;
+      color: var(--text-light);
+      transition: var(--transition);
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+    }
+
+    .close:hover {
+      color: var(--primary-dark);
+      background-color: rgba(0, 0, 0, 0.05);
+    }
+
+    .modal-chart-container {
+      height: 500px;
+    }
+
+    /* Loader */
+    .loader-container {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(255, 255, 255, 0.8);
+      z-index: 9998;
+      justify-content: center;
+      align-items: center;
+      backdrop-filter: blur(5px);
+    }
+
+    .loader {
+      width: 50px;
+      height: 50px;
+      border: 5px solid rgba(27, 94, 32, 0.2);
+      border-radius: 50%;
+      border-top-color: var(--primary-color);
+      animation: spin 1s ease-in-out infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Estilos para o Leaflet */
+    .leaflet-control-layers {
+      border-radius: 8px !important;
+      box-shadow: var(--box-shadow) !important;
+    }
+
+    .leaflet-control-zoom {
+      border-radius: 8px !important;
+      box-shadow: var(--box-shadow) !important;
+    }
+
+    .leaflet-control-zoom a {
+      background-color: white !important;
+      color: var(--primary-dark) !important;
+    }
+
+    .leaflet-control-zoom a:hover {
+      background-color: #f5f5f5 !important;
+    }
+
+    /* Animações */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .fade-in {
+      animation: fadeIn 0.5s ease-in-out forwards;
+    }
+
+    .fade-in-1 { animation-delay: 0.1s; }
+    .fade-in-2 { animation-delay: 0.2s; }
+    .fade-in-3 { animation-delay: 0.3s; }
+
+    /* Responsividade */
+    @media (max-width: 992px) {
+      .charts-section {
+        flex-direction: column;
+      }
+      
+      .chart-card {
+        width: 100%;
+      }
+      
+      .canvas-container {
+        height: 250px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .header h1 {
+        font-size: 2em;
+      }
+      
+      .subtitle {
+        font-size: 1em;
+      }
+      
+      .filter-item {
+        min-width: 120px;
+      }
+      
+      #map {
+        height: 400px;
+      }
+      
+      .modal-content {
+        width: 95%;
+        padding: 15px;
+      }
+      
+      .modal-chart-container {
+        height: 350px;
+      }
+    }
+
+    @media (max-width: 576px) {
+      .filter-item {
+        min-width: 100%;
+      }
+    }
+        .dashboard-header {
+      background: linear-gradient(135deg,#F5F5F5,#F5F5F5);
+      color: white;
+      padding: 25px;
+      border-radius: var(--border-radius);
+      margin-bottom: 30px;
+      box-shadow: var(--box-shadow);
+      text-align: center;
+      position: relative;
+    }
+
+    .dashboard-header::after {
+      content: '';
+      position: absolute;
+      bottom: -10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100px;
+      height: 5px;
+      background-color: var(--accent-color);
+      border-radius: 5px;
+    }
+
+    .dashboard-title {
+      font-weight: 700;
+      margin-bottom: 8px;
+      font-size: 2.5em;
+      letter-spacing: 1px;
+      text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    .dashboard-subtitle {
+      opacity: 0.9;
+      font-size: 1.2em;
+      font-weight: 300;
+    }
+    .info {
+  padding: 6px 8px;
+  font: 14px/16px Montserrat, sans-serif;
+  background: white;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+  border-radius: 5px;
+}
+
+.info h4 {
+  margin: 0 0 5px;
+  color: #333;
+  font-weight: bold;
+}
+
+.legend {
+  line-height: 18px;
+  color: #555;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  margin: 5px 0;
+}
+
+.legend-item span {
+  display: inline-block;
+  width: 18px;
+  height: 12px;
+  margin-right: 8px;
+  border: 1px solid #ddd;
+  border-radius: 2px;
+}
+
+/* Overlay */
+#loader-overlay{
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,.18);
+  z-index: 2147483647;
+  backdrop-filter: blur(1.5px);
+}
+
+/* Cartão fixo */
+#loader-overlay .loader-card{
+  width: 260px;             /* largura fixa */
+  height: 110px;            /* altura fixa */
+  display: flex;
+  flex-direction: column;   /* spinner em cima, texto embaixo */
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  background: #fff !important;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.15);
+  font-family: 'Montserrat', sans-serif;
+}
+
+/* Anel verde */
+#loader-overlay .loader-ring{
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  border-top-color: #008055;
+  animation: spin .9s linear infinite;
+}
+
+#loader-overlay .loader-text{
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  white-space: nowrap;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+/* Wrapper horizontal para os anos */
+.filter-item.year-range {
+  display: flex;
+  gap: 5px;         /* espaço entre Ano e Ano final */
+  align-items: flex-end; /* alinha os selects pela base */
+}
+
+/* Garante que o botão fique alinhado pela base também */
+.filter-container > .filter-item button {
+  height: 48px;   /* mesma altura dos selects */
+  margin-top: 28px; /* compensa a altura do label */
+}
+  </style>
+</head>
+<body>
+  
+  <!--
+  <div class="loader-container" id="loader">
+    <div class="loader"></div>
+  </div>
+-->
+
+  <div class="container" id="app-root">
+    <!-- Header com gradiente -->
+    <div class="dashboard-header fade-in fade-in-1">
+      <img src="../../img/floreser.png" alt="Logo SAD" style="max-width: 150px; height: auto; display: block; margin: 0 auto;">
+      
+    </div>
+
+  <div class="container">
+    <div class="filter-container fade-in fade-in-1">
+      <div class="filter-item">
+        <label class="filter-label" for="stateFilter">Estado</label>
+        <select id="stateFilter">
+          <option value="">Todos</option>
+        </select>
+      </div>
+      <div class="filter-item">
+        <label class="filter-label" for="municipioFilter">Município</label>
+        <select id="municipioFilter">
+          <option value="">Todos </option>
+        </select>
+      </div>
+     <div class="filter-item year-range">
+  <div>
+    <label class="filter-label" for="startYear">Ano</label>
+    <select id="startYear">
+      <script>
+        for (let year = 1986; year <= new Date().getFullYear()-1; year++) {
+          document.write(`<option value="${year}">${year}</option>`);
+        }
+      </script>
+    </select>
+  </div>
+  <div>
+    <label class="filter-label" for="endYear">Ano final</label>
+    <select id="endYear">
+      <script>
+        for (let year = 1986; year <= new Date().getFullYear()-1; year++) {
+          document.write(`<option value="${year}">${year}</option>`);
+        }
+      </script>
+    </select>
+  </div>
+</div>
+
+
+      
+      
+      <div class="filter-item">
+        <button id="applyYearFilter">
+          <i class="fas fa-filter"></i> Aplicar Filtro
+        </button>
+      </div> 
+    </div>
+</div>
+    <!-- Gráficos lado a lado -->
+    <div class="charts-section fade-in fade-in-2">
+      <div class="chart-card" id="areaChartCard">
+        <div class="chart-title">Vegetação Secundária no Bioma Amazônia</div>
+        <div class="canvas-container">
+          <canvas id="areaChart"></canvas>
+        </div>
+      </div>
+      <div class="chart-card" id="municipioChartCard">
+        <div class="chart-title">Ranking de Municípios com Maior Área de Vegetação Secundária</div>
+        <div class="canvas-container">
+          <canvas id="municipioChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mapa abaixo dos gráficos -->
+    <div class="map-container fade-in fade-in-3">
+      <div class="map-title">Mapa Interativo da Amazônia Legal</div>
+      <div id="map"></div>
+      <script src="script.js"></script>
+
+  <script>
+    function openModal(chartId) {
+      document.getElementById(chartId).style.display = 'block';
+    }
+
+    function closeModal(chartId) {
+      document.getElementById(chartId).style.display = 'none';
+    }
+
+    document.getElementById('areaChart').onclick = () => openModal('modalAreaChart');
+    document.getElementById('municipioChart').onclick = () => openModal('modalMunicipioChart');
+  </script>
+    </div>
+  </div>
+
+  <!-- Modal para exibir gráficos ampliados -->
+  <div id="modalAreaChart" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-title">Área Acumulada por Ano</div>
+        <span class="close" onclick="closeModal('modalAreaChart')">&times;</span>
+      </div>
+      <div class="modal-chart-container">
+        <canvas id="areaChartLarge"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div id="modalMunicipioChart" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-title">Top 10 Municípios por Área</div>
+        <span class="close" onclick="closeModal('modalMunicipioChart')">&times;</span>
+      </div>
+      <div class="modal-chart-container">
+        <canvas id="municipioChartLarge"></canvas>
+      </div>
+    </div>
+  </div>
+
+  
+
+  <script>
+// === Loader "cartão" com anel verde — sempre recria para evitar markup antigo ===
+function buildLoaderOverlay(msg = 'Carregando Dados') {
+  // remove overlays antigos (estrutura diferente/ID igual)
+  const old = document.getElementById('loader-overlay');
+  if (old) old.remove();
+
+  const el = document.createElement('div');
+  el.id = 'loader-overlay';
+  el.innerHTML = `
+    <div class="loader-card">
+      <div class="loader-ring" aria-hidden="true"></div>
+      <div class="loader-text">${msg}</div>
+    </div>
+  `;
+  document.body.appendChild(el);
+  return el;
+}
+
+function showLoader(msg = 'Carregando Dados') {
+  // garante overlay com a estrutura certa
+  let el = document.getElementById('loader-overlay');
+  if (!el || !el.querySelector('.loader-card')) {
+    el = buildLoaderOverlay(msg);
+  } else {
+    const t = el.querySelector('.loader-text');
+    if (t) t.textContent = msg;
+  }
+  el.style.display = 'flex';
+}
+
+function hideLoader() {
+  const el = document.getElementById('loader-overlay');
+  if (el) el.style.display = 'none';
+}
+
+
+    function openModal(chartId) {
+      const modal = document.getElementById(chartId);
+      modal.style.display = 'block';
+      setTimeout(() => {
+        modal.classList.add('show');
+      }, 10);
+    }
+
+    function closeModal(chartId) {
+      const modal = document.getElementById(chartId);
+      modal.classList.remove('show');
+      setTimeout(() => {
+        modal.style.display = 'none';
+      }, 300);
+    }
+
+    document.getElementById('areaChartCard').onclick = () => openModal('modalAreaChart');
+    document.getElementById('municipioChartCard').onclick = () => openModal('modalMunicipioChart');
+
+    // Fechar modal ao clicar fora do conteúdo
+    window.onclick = function(event) {
+      if (event.target.classList.contains('modal')) {
+        closeModal(event.target.id);
+      }
+    }
+  </script>
+  <div id="loader-overlay" style="display:none;">
+  <div class="loader-box">
+    <div class="spinner-border" role="status" aria-hidden="true"></div>
+    <span class="loader-text">Carregando dados...</span>
+  </div>
+</div>
+
+</body>
+</html>
+
+
+
+
+
