@@ -170,7 +170,7 @@ app.use('/img',     express.static(path.join(ROOT_DIR, 'img'),     { setHeaders:
 
 // ------------------------- Rotas API ---------------------------
 
-app.get('/municipios-amazonia', (_req, res) => {
+app.get('/floreser/municipios-amazonia', (_req, res) => {
   try {
     const filePath = LIMITE_AMAZONIA_LEGAL;
 
