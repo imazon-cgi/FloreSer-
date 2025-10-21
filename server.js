@@ -22,7 +22,6 @@ const CSV_FILE = path.join(DATASET_DIR, 'floreser-9-22-1-ages-sf.csv');
 const LIMITE_AMAZONIA_LEGAL = path.join(DATASET_DIR, 'limite_municipios_amz_legal.geojson');
 const CSV_SOURCE_ENCODING = process.env.CSV_SOURCE_ENCODING || 'latin1';
 
-
 const MIME = {
   '.html': 'text/html',
   '.js': 'application/javascript',
@@ -46,6 +45,22 @@ function withCharset(type) {
              || type === 'application/json'
              || type === 'application/xml';
   return needs ? `${type}; charset=utf-8` : type;
+}
+
+// ----------------- Helper p/ erros JSON unificados ----------
+function sendJsonError(res, status, message, err) {
+  try {
+    res.status(status).set('Content-Type', 'application/json; charset=utf-8')
+      .json({
+        ok: false,
+        error: message,
+        details: err && (err.message || String(err)),
+      });
+  } catch (e) {
+    // fallback (raro)
+    res.status(status).set('Content-Type', 'application/json; charset=utf-8')
+      .end(JSON.stringify({ ok: false, error: message }));
+  }
 }
 
 // ========================= Earth Engine =========================
@@ -102,7 +117,6 @@ async function getFloreserTileUrl() {
 
 // ========================= Helpers CSV =========================
 function readCsvUtf8(csvPath, srcEnc = CSV_SOURCE_ENCODING) {
-  // Transcodifica para UTF-8 ANTES do csv-parser
   return fs.createReadStream(csvPath)
     .pipe(iconv.decodeStream(srcEnc))
     .pipe(iconv.encodeStream('utf8'))
@@ -126,7 +140,7 @@ app.get('/healthz', (_req, res) => {
   });
 });
 
-// Intercepta CSVs servidos de /dataset para enviar em UTF-8
+// Intercepta CSVs de /dataset para enviar em UTF-8
 app.get(/^\/dataset\/.*\.csv$/i, (req, res, next) => {
   try {
     const filePath = path.join(ROOT_DIR, req.path.replace(/^\//, ''));
@@ -138,7 +152,8 @@ app.get(/^\/dataset\/.*\.csv$/i, (req, res, next) => {
       .pipe(res);
   } catch (e) {
     console.error('[CSV static] erro:', e);
-    next();
+    // Mantém JSON em erro
+    sendJsonError(res, 500, 'Erro ao servir CSV', e);
   }
 });
 
@@ -161,48 +176,36 @@ app.get('/municipios-amazonia', (_req, res) => {
 
     if (!fs.existsSync(filePath)) {
       console.error('[/municipios-amazonia] arquivo não encontrado:', filePath);
-      return res
-        .status(404)
-        .json({ error: 'GeoJSON de municípios não encontrado', path: filePath });
+      return sendJsonError(res, 404, 'GeoJSON de municípios não encontrado');
     }
 
     const ext = path.extname(filePath).toLowerCase();
     if (ext !== '.geojson' && ext !== '.json') {
       console.error('[/municipios-amazonia] extensão inválida:', ext);
-      return res.status(400).json({ error: 'Arquivo de municípios deve ser .geojson ou .json' });
+      return sendJsonError(res, 400, 'Arquivo de municípios deve ser .geojson ou .json');
     }
 
     fs.readFile(filePath, 'utf8', (err, text) => {
       if (err) {
         console.error('[/municipios-amazonia] erro ao ler arquivo:', err);
-        return res.status(500).json({ error: 'Falha ao ler o GeoJSON local' });
+        return sendJsonError(res, 500, 'Falha ao ler o GeoJSON local', err);
       }
       try {
         const json = JSON.parse(text);
-
-        // Validação mínima para Leaflet
         if (!json || json.type !== 'FeatureCollection' || !Array.isArray(json.features)) {
-          return res.status(500).json({
-            error: 'Conteúdo não é um FeatureCollection válido',
-            path: filePath
-          });
+          return sendJsonError(res, 500, 'Conteúdo não é um FeatureCollection válido');
         }
-
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Cache-Control', 'public, max-age=300'); // 5 min
         return res.json(json);
       } catch (parseErr) {
         console.error('[/municipios-amazonia] JSON inválido:', parseErr.message);
-        return res.status(500).json({
-          error: 'Conteúdo do arquivo não é um JSON válido',
-          message: parseErr.message,
-          path: filePath
-        });
+        return sendJsonError(res, 500, 'Conteúdo do arquivo não é um JSON válido', parseErr);
       }
     });
   } catch (err) {
     console.error('[/municipios-amazonia] erro inesperado:', err);
-    res.status(500).json({ error: 'Erro ao obter GeoJSON de municípios (local)' });
+    return sendJsonError(res, 500, 'Erro ao obter GeoJSON de municípios (local)', err);
   }
 });
 
@@ -210,10 +213,10 @@ app.get('/floreser-url', async (_req, res) => {
   try {
     const url = await getFloreserTileUrl();
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.json({ url });
+    res.json({ ok: true, url });
   } catch (err) {
     console.error('[/floreser-url] erro:', err);
-    res.status(500).json({ error: String(err) });
+    return sendJsonError(res, 500, 'Erro ao obter URL FLORESER (EE)', err);
   }
 });
 
@@ -221,10 +224,10 @@ app.get('/srtm-url', async (_req, res) => {
   try {
     const url = await getSRTMMapUrl();
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.json({ url });
+    res.json({ ok: true, url });
   } catch (err) {
     console.error('[/srtm-url] erro:', err);
-    res.status(500).json({ error: 'Erro ao obter URL SRTM' });
+    return sendJsonError(res, 500, 'Erro ao obter URL SRTM (EE)', err);
   }
 });
 
@@ -234,11 +237,11 @@ app.get('/lista-estados', (_req, res) => {
     .on('data', row => { if (row.state) estados.add(String(row.state).trim()); })
     .on('end', () => {
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.json([...estados]);
+      res.json({ ok: true, data: [...estados] });
     })
     .on('error', err => {
       console.error('[/lista-estados] erro:', err);
-      res.status(500).send('Erro ao carregar estados');
+      return sendJsonError(res, 500, 'Erro ao carregar estados', err);
     });
 });
 
@@ -253,11 +256,11 @@ app.get('/lista-municipios/:estado', (req, res) => {
     })
     .on('end', () => {
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.json([...municipios]);
+      res.json({ ok: true, data: [...municipios] });
     })
     .on('error', err => {
       console.error('[/lista-municipios] erro:', err);
-      res.status(500).send('Erro ao carregar municípios');
+      return sendJsonError(res, 500, 'Erro ao carregar municípios', err);
     });
 });
 
@@ -276,11 +279,11 @@ app.get('/area-data', (_req, res) => {
     })
     .on('end', () => {
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.json(data);
+      res.json({ ok: true, data });
     })
     .on('error', err => {
       console.error('[/area-data] erro:', err);
-      res.status(500).send('Erro ao carregar dados');
+      return sendJsonError(res, 500, 'Erro ao carregar dados', err);
     });
 });
 
@@ -309,11 +312,11 @@ app.get('/municipios-area-data', (req, res) => {
       }, {});
       const arr = Object.values(agreg).sort((a, b) => b.area - a.area);
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.json(arr);
+      res.json({ ok: true, data: arr });
     })
     .on('error', err => {
       console.error('[/municipios-area-data] erro:', err);
-      res.status(500).send('Erro ao processar CSV');
+      return sendJsonError(res, 500, 'Erro ao processar CSV', err);
     });
 });
 
@@ -343,10 +346,22 @@ app.use((req, res, next) => {
   next();
 });
 
-// 404
-app.use((req, res) => {
+// 404 (sempre JSON quando pedirem "/api/..."; texto só para páginas estáticas)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/municipios') ||
+      req.path.startsWith('/lista-') || req.path.startsWith('/area-data') ||
+      req.path.startsWith('/municipios-area-data') ||
+      req.path.startsWith('/srtm-url') || req.path.startsWith('/floreser-url')) {
+    return sendJsonError(res, 404, `Rota ${req.path} não encontrada`);
+  }
   res.status(404).set('Content-Type', 'text/plain; charset=utf-8');
   res.send(`404 – ${req.path} não encontrado.`);
+});
+
+// Middleware de erro global (JSON)
+app.use((err, req, res, _next) => {
+  console.error('🔥 Erro não tratado:', err);
+  return sendJsonError(res, 500, 'Erro interno do servidor', err);
 });
 
 // ========================= Start =========================
