@@ -826,7 +826,7 @@ button, select { width: auto; }          /* regra de segurança */
 
       <!-- === Botão solicitado: Remover Filtro (apenas o botão) === -->
       <div class="filter-item">
-        <button id="removeFilter">
+        <button id="removeFilter" class="btn btn-secondary w-100">
           <i class="fas fa-eraser me-1"></i> Remover Filtro
         </button>
       </div>
@@ -875,15 +875,11 @@ button, select { width: auto; }          /* regra de segurança */
       <div class="card-header">
         <div class="downloads-title">Downloads</div>
         <div class="typebar" id="floreser-typebar" role="tablist" aria-label="Tipos de arquivo do FloreSer">
-          <button class="typebtn active" data-type="geojson" role="tab" aria-selected="true" title="GeoJSON anual">
-            <i class="fa-regular fa-map"></i> GeoJSON
-          </button>
+          
           <button class="typebtn" data-type="csv" role="tab" aria-selected="false" title="CSV anual">
             <i class="fa-regular fa-file-lines"></i> CSV
           </button>
-          <button class="typebtn" data-type="shp" role="tab" aria-selected="false" title="Shapefile anual (ZIP)">
-            <i class="fa-regular fa-file-zipper"></i> Shapefile
-          </button>
+          
         </div>
         <button class="collapse-btn" id="downloads-floreser-toggle" title="Expandir / Recolher"
                 aria-expanded="false" aria-controls="downloads-floreser-body">
