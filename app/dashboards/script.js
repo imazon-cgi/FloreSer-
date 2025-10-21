@@ -41,7 +41,7 @@ function toTitleCasePt(str = '') {
   // normaliza: "SÃO JOÃO DA BARRA" -> ["são","joão","da","barra"]
   const words = str.toLowerCase().split(/\s+/);
   return words.map((w, i) => {
-    // mantém “d’água” com D’ minúsculo e próxima maiúscula
+    // mantém "d'água" com D' minúsculo e próxima maiúscula
     if (small.has(w) && i !== 0) return w;
     
     return w.charAt(0).toUpperCase() + w.slice(1);
@@ -746,15 +746,131 @@ document.getElementById('municipioFilter').addEventListener('change', async func
 
 document.getElementById('applyYearFilter').addEventListener('click', applyYearFilter);
 
+// ===== Downloads FloreSer =====
+const FLORESER_GEOJSON_BASE = '/dataset/floreser/geojson';
+const FLORESER_CSV_BASE = '/dataset/floreser/csv';
+const FLORESER_SHP_BASE = '/dataset/floreser/shp';
+let FLORESER_SELECTED_TYPE = 'geojson';
+
+function floreserAnnualUrl(year, type = FLORESER_SELECTED_TYPE) {
+  if (type === 'geojson') return `${FLORESER_GEOJSON_BASE}/floreser_${year}.geojson`;
+  if (type === 'csv') return `${FLORESER_CSV_BASE}/floreser_${year}.csv`;
+  return `${FLORESER_SHP_BASE}/floreser_${year}.zip`;
+}
+
+function makeChipFloreser(label, url) {
+  const li = document.createElement('li');
+  const a = document.createElement('a');
+  a.className = 'chiplink';
+  a.textContent = label;
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  li.appendChild(a);
+  return li;
+}
+
+async function buildFloreserYearBlock(year) {
+  const details = document.createElement('details');
+  details.open = false;
+  
+  const summary = document.createElement('summary');
+  summary.innerHTML = `<span class="year">${year}</span>`;
+  details.appendChild(summary);
+
+  const formats = document.createElement('div');
+  formats.className = 'format-wrap';
+  
+  const fAnnual = document.createElement('div');
+  fAnnual.className = 'format-card';
+  
+  const titleKind = FLORESER_SELECTED_TYPE === 'geojson' ? 'GeoJSON anual' :
+                   FLORESER_SELECTED_TYPE === 'csv' ? 'CSV anual' : 
+                   'Shapefile anual (ZIP)';
+  
+  fAnnual.innerHTML = `<div class="format-title">${titleKind}</div>`;
+  
+  const list = document.createElement('ul');
+  list.className = 'chiplist';
+  
+  const label = `Baixar ${year}`;
+  const url = floreserAnnualUrl(year);
+  list.appendChild(makeChipFloreser(label, url));
+  
+  fAnnual.appendChild(list);
+  formats.appendChild(fAnnual);
+  details.appendChild(formats);
+  return details;
+}
+
+async function renderDownloadsFloreSer() {
+  const ul = document.getElementById('floreser-downloads-list');
+  ul.innerHTML = '';
+  
+  const currentYear = new Date().getFullYear();
+  // FloreSer geralmente tem dados de 1986 em diante
+  for (let year = currentYear; year >= 1986; year--) {
+    const blk = await buildFloreserYearBlock(year);
+    const li = document.createElement('li');
+    li.appendChild(blk);
+    ul.appendChild(li);
+  }
+}
+
+// Inicialização dos downloads FloreSer
+function initializeFloreSerDownloads() {
+  const downloadCard = document.getElementById('downloads-floreser-card');
+  const toggleBtn = document.getElementById('downloads-floreser-toggle');
+  const listEl = document.getElementById('floreser-downloads-list');
+
+  if (!downloadCard || !toggleBtn || !listEl) return;
+
+  // Evento para expandir/recolher
+  toggleBtn.addEventListener('click', async () => {
+    const collapsed = downloadCard.classList.toggle('collapsed');
+    toggleBtn.setAttribute('aria-expanded', String(!collapsed));
+
+    // Se abriu e não tem anos renderizados, renderiza agora
+    const needsRender = !collapsed && (
+      !listEl.children.length ||
+      (listEl.children.length === 1 && listEl.querySelector('.muted'))
+    );
+    if (needsRender) {
+      await renderDownloadsFloreSer();
+    }
+  });
+
+  // Evento para trocar tipo de arquivo
+  document.querySelector('#floreser-typebar').addEventListener('click', async (e) => {
+    const btn = e.target.closest('.typebtn');
+    if (!btn) return;
+
+    document.querySelectorAll('#floreser-typebar .typebtn').forEach(b => {
+      b.classList.toggle('active', b === btn);
+      b.setAttribute('aria-selected', b === btn ? 'true' : 'false');
+    });
+
+    FLORESER_SELECTED_TYPE = btn.dataset.type;
+    await renderDownloadsFloreSer();
+  });
+
+  // Render inicial (conteúdo pronto quando possível)
+  renderDownloadsFloreSer().catch(() => {});
+}
+
 // ---- Inicialização ----
 window.addEventListener('DOMContentLoaded', async () => {
-   const endYearEl = document.getElementById('endYear');
+  const endYearEl = document.getElementById('endYear');
   if (endYearEl) {
     endYearEl.value = String(new Date().getFullYear() - 1);
   }
   showLoader();
-  await loadStateFilter(); // se falhar, mostra modal e segue
+  await loadStateFilter();
   await loadMap();
-  await applyYearFilter(); 
+  await applyYearFilter();
+  
+  // Inicializar downloads FloreSer
+  initializeFloreSerDownloads();
+  
   hideLoader();
 });
