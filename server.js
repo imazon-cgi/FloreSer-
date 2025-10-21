@@ -10,18 +10,18 @@ const csv     = require('csv-parser');
 const axios   = require('axios');
 const iconv   = require('iconv-lite');
 const ee      = require('@google/earthengine');
+const cors    = require('cors');
 
 // ========================= Config =========================
-const PORT          = process.env.PORT || 8053;
+const PORT          = process.env.PORT || 3003;
 const ROOT_DIR      = __dirname;
 const DASHBOARD_DIR = path.join(ROOT_DIR, 'app', 'dashboards');
 const DATASET_DIR   = path.join(ROOT_DIR, 'dataset');
 
-// Ajuste o nome do CSV principal aqui se precisar
 const CSV_FILE = path.join(DATASET_DIR, 'floreser-9-22-1-ages-sf.csv');
-
-// Se seus CSVs vierem em Latin-1/Win-1252, mantenha 'latin1'
+const LIMITE_AMAZONIA_LEGAL = path.join(DATASET_DIR, 'limite_municipios_amz_legal.geojson');
 const CSV_SOURCE_ENCODING = process.env.CSV_SOURCE_ENCODING || 'latin1';
+
 
 const MIME = {
   '.html': 'text/html',
@@ -95,7 +95,7 @@ async function getSRTMMapUrl() {
 async function getFloreserTileUrl() {
   await initializeEE();
   const fc  = ee.FeatureCollection('projects/imazon-simex/FLORESER/floreser-collection-10-v12-sv-ages-sf');
-  const img = ee.Image().paint(fc, 1, 1).visualize({ palette: ['008055'], opacity: 0.8 });
+  const img = ee.Image().paint(fc, 1, 1).visualize({ palette: ['#008055'], opacity: 0.8 });
   const map = img.getMap({});
   return toTileUrl(map);
 }
@@ -111,6 +111,20 @@ function readCsvUtf8(csvPath, srcEnc = CSV_SOURCE_ENCODING) {
 
 // ========================= App =========================
 const app = express();
+
+// CORS (se o front estiver em outra origem/porta)
+app.use(cors({ origin: true }));
+
+// Healthcheck simples
+app.get('/healthz', (_req, res) => {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.json({
+    ok: true,
+    port: PORT,
+    csvEncoding: CSV_SOURCE_ENCODING,
+    municipiosPath: LIMITE_AMAZONIA_LEGAL,
+  });
+});
 
 // Intercepta CSVs servidos de /dataset para enviar em UTF-8
 app.get(/^\/dataset\/.*\.csv$/i, (req, res, next) => {
@@ -140,6 +154,58 @@ app.use('/assets',  express.static(path.join(ROOT_DIR, 'assets'),  { setHeaders:
 app.use('/img',     express.static(path.join(ROOT_DIR, 'img'),     { setHeaders: setUtf8Header }));
 
 // ------------------------- Rotas API ---------------------------
+
+app.get('/municipios-amazonia', (_req, res) => {
+  try {
+    const filePath = LIMITE_AMAZONIA_LEGAL;
+
+    if (!fs.existsSync(filePath)) {
+      console.error('[/municipios-amazonia] arquivo não encontrado:', filePath);
+      return res
+        .status(404)
+        .json({ error: 'GeoJSON de municípios não encontrado', path: filePath });
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext !== '.geojson' && ext !== '.json') {
+      console.error('[/municipios-amazonia] extensão inválida:', ext);
+      return res.status(400).json({ error: 'Arquivo de municípios deve ser .geojson ou .json' });
+    }
+
+    fs.readFile(filePath, 'utf8', (err, text) => {
+      if (err) {
+        console.error('[/municipios-amazonia] erro ao ler arquivo:', err);
+        return res.status(500).json({ error: 'Falha ao ler o GeoJSON local' });
+      }
+      try {
+        const json = JSON.parse(text);
+
+        // Validação mínima para Leaflet
+        if (!json || json.type !== 'FeatureCollection' || !Array.isArray(json.features)) {
+          return res.status(500).json({
+            error: 'Conteúdo não é um FeatureCollection válido',
+            path: filePath
+          });
+        }
+
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'public, max-age=300'); // 5 min
+        return res.json(json);
+      } catch (parseErr) {
+        console.error('[/municipios-amazonia] JSON inválido:', parseErr.message);
+        return res.status(500).json({
+          error: 'Conteúdo do arquivo não é um JSON válido',
+          message: parseErr.message,
+          path: filePath
+        });
+      }
+    });
+  } catch (err) {
+    console.error('[/municipios-amazonia] erro inesperado:', err);
+    res.status(500).json({ error: 'Erro ao obter GeoJSON de municípios (local)' });
+  }
+});
+
 app.get('/floreser-url', async (_req, res) => {
   try {
     const url = await getFloreserTileUrl();
@@ -159,18 +225,6 @@ app.get('/srtm-url', async (_req, res) => {
   } catch (err) {
     console.error('[/srtm-url] erro:', err);
     res.status(500).json({ error: 'Erro ao obter URL SRTM' });
-  }
-});
-
-app.get('/municipios-amazonia', async (_req, res) => {
-  try {
-    const url = 'https://github.com/imazon-cgi/simex/raw/refs/heads/main/datasets/geojson/limite_municipios_amz_legal.geojson';
-    const { data } = await axios.get(url, { responseType: 'json' });
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.json(data);
-  } catch (err) {
-    console.error('[/municipios-amazonia] erro:', err);
-    res.status(500).send('Erro ao obter GeoJSON de municípios');
   }
 });
 
@@ -295,7 +349,12 @@ app.use((req, res) => {
   res.send(`404 – ${req.path} não encontrado.`);
 });
 
-// Start (só sobe se EE autenticou)
+// ========================= Start =========================
+console.log('> Config:');
+console.log('  - PORT:', PORT);
+console.log('  - CSV_SOURCE_ENCODING:', CSV_SOURCE_ENCODING);
+console.log('  - LIMITE_AMAZONIA_LEGAL:', LIMITE_AMAZONIA_LEGAL);
+
 initializeEE()
   .then(() => app.listen(PORT, () => console.log(`🚀  http://localhost:${PORT}`)))
   .catch(() => process.exit(1));
