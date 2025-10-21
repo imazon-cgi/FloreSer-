@@ -243,7 +243,7 @@ layer.tooltip = L.tooltip({
 
     municipiosLayer = L.geoJSON(null, { style, onEachFeature });
 
-    const geojsonResponse = await fetch('/municipios-amazonia');
+    const geojsonResponse = await fetch('/floreser/municipios-amazonia');
     const geojsonData = await geojsonResponse.json();
     municipiosLayer.addData(geojsonData);
     municipiosLayer.addTo(map);
