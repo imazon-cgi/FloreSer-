@@ -35,7 +35,7 @@ const chartBorders = [
 function toTitleCasePt(str = '') {
   if (!str) return '';
   const small = new Set([
-    'da','de','do','das','dos','e','di','du','d\'','d’','a','o','as','os'
+    'da','de','do','das','dos','e','di','du','d\'','d\'','a','o','as','os'
   ]);
   // normaliza: "SÃO JOÃO DA BARRA" -> ["são","joão","da","barra"]
   const words = str.toLowerCase().split(/\s+/);
@@ -60,7 +60,7 @@ function eqStr(a, b) {
 // ---- Helpers UI ----
 
 function showLoader(msg = 'Carregando dados...') {
-  const el = document.getElementById('loader');
+  const el = document.getElementById('loader-overlay');
   if (!el) return;
   const t = el.querySelector('.loader-text');
   if (t) t.textContent = msg;
@@ -68,7 +68,7 @@ function showLoader(msg = 'Carregando dados...') {
 }
 
 function hideLoader() {
-  const el = document.getElementById('loader');
+  const el = document.getElementById('loader-overlay');
   if (el) el.style.display = 'none';
 }
 
@@ -714,75 +714,105 @@ document.getElementById('municipioFilter').addEventListener('change', async func
 
 document.getElementById('applyYearFilter').addEventListener('click', applyYearFilter);
 
-/* ===== Downloads FloreSer — AWS S3 =====
-   Padrão: https://imazongeo3-web.s3.sa-east-1.amazonaws.com/floreser/floreser_<ANO>.<ext>
-   ext: csv | geojson | zip (para SHP)
-*/
+// Evento para o botão "Remover Filtro"
+document.getElementById('removeFilter').addEventListener('click', function() {
+  // Resetar os filtros
+  document.getElementById('stateFilter').value = '';
+  document.getElementById('municipioFilter').innerHTML = '<option value="">Todos os Municípios</option>';
+  document.getElementById('startYear').value = '1986';
+  document.getElementById('endYear').value = String(new Date().getFullYear() - 1);
+  
+  // Aplicar os filtros resetados
+  applyYearFilter();
+});
+
+/* ===== Downloads FloreSer — AWS S3 ===== */
 const FLORESER_AWS_BASE = 'https://imazongeo3-web.s3.sa-east-1.amazonaws.com/floreser';
-let FLORESER_SELECTED_TYPE = 'csv'; // 'csv' | 'geojson' | 'shp'
+let FLORESER_SELECTED_TYPE = 'csv';
 
 function floreserAnnualUrl(year, type = FLORESER_SELECTED_TYPE) {
-  const ext = (type === 'csv') ? 'csv' : (type === 'geojson') ? 'geojson' : 'zip'; // 'shp' -> zip
+  const ext = 'csv'; // Somente CSV disponível
   return `${FLORESER_AWS_BASE}/floreser_${year}.${ext}`;
 }
 
-function makeChipFloreser(label, url) {
-  const li = document.createElement('li');
-  const a = document.createElement('a');
-  a.className = 'chiplink';
-  a.textContent = label;
-  a.href = url;
-  a.target = '_blank';
-  a.rel = 'noopener';
-  li.appendChild(a);
-  return li;
-}
+function buildDownloadsListFloreSer() {
+  const list = document.getElementById('floreser-downloads-list');
+  const typebar = document.getElementById('floreser-typebar');
+  const toggleBtn = document.getElementById('downloads-floreser-toggle');
+  
+  if (!list || !typebar || !toggleBtn) return;
 
-async function buildFloreserYearBlock(year) {
-  const details = document.createElement('details');
-  details.open = false;
+  function renderYearChips() {
+    const currentType = 'csv'; // Somente CSV disponível
+    const currentYear = new Date().getFullYear() - 1;
+    const anos = [];
+    
+    for (let year = currentYear; year >= 1986; year--) {
+      anos.push(year);
+    }
 
-  const summary = document.createElement('summary');
-  summary.innerHTML = `<span class="year">${year}</span>`;
-  details.appendChild(summary);
+    list.innerHTML = '';
 
-  const formats = document.createElement('div');
-  formats.className = 'format-wrap';
+    if (!anos.length) {
+      list.innerHTML = '<li class="muted">Sem anos disponíveis.</li>';
+      return;
+    }
 
-  const fAnnual = document.createElement('div');
-  fAnnual.className = 'format-card';
+    const details = document.createElement('details');
+    details.open = true;
+    
+    const summary = document.createElement('summary');
+    summary.textContent = ''; // Texto vazio como no SIMEX
+    details.appendChild(summary);
 
-  const titleKind = FLORESER_SELECTED_TYPE === 'geojson' ? 'GeoJSON anual'
-                   : FLORESER_SELECTED_TYPE === 'csv'    ? 'CSV anual'
-                   : 'Shapefile anual (ZIP)';
+    const wrap = document.createElement('div');
+    wrap.className = 'format-wrap';
 
-  fAnnual.innerHTML = `<div class="format-title">${titleKind}</div>`;
+    const formatCard = document.createElement('div');
+    formatCard.className = 'format-card';
+    
+    const title = document.createElement('div');
+    title.className = 'format-title';
+    title.textContent = 'CSV anual';
+    formatCard.appendChild(title);
 
-  const list = document.createElement('ul');
-  list.className = 'chiplist';
+    const ul = document.createElement('ul');
+    ul.className = 'chiplist';
 
-  const label = `Baixar ${year}`;
-  const url = floreserAnnualUrl(year);
-  list.appendChild(makeChipFloreser(label, url));
+    anos.forEach(ano => {
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = 'javascript:void(0)';
+      a.className = 'chiplink';
+      a.textContent = String(ano);
+      a.title = `Baixar CSV de ${ano}`;
 
-  fAnnual.appendChild(list);
-  formats.appendChild(fAnnual);
-  details.appendChild(formats);
-  return details;
-}
+      a.addEventListener('click', () => {
+        const url = floreserAnnualUrl(ano);
+        // Criar link temporário para download
+        const tempLink = document.createElement('a');
+        tempLink.href = url;
+        tempLink.target = '_blank';
+        tempLink.rel = 'noopener';
+        document.body.appendChild(tempLink);
+        tempLink.click();
+        document.body.removeChild(tempLink);
+      });
 
-async function renderDownloadsFloreSer() {
-  const ul = document.getElementById('floreser-downloads-list');
-  if (!ul) return;
-  ul.innerHTML = '';
+      li.appendChild(a);
+      ul.appendChild(li);
+    });
 
-  const currentYear = new Date().getFullYear()-1;
-  for (let year = currentYear; year >= 1986; year--) {
-    const blk = await buildFloreserYearBlock(year);
+    formatCard.appendChild(ul);
+    wrap.appendChild(formatCard);
+    details.appendChild(wrap);
+
     const li = document.createElement('li');
-    li.appendChild(blk);
-    ul.appendChild(li);
+    li.appendChild(details);
+    list.appendChild(li);
   }
+
+  renderYearChips();
 }
 
 // Inicialização dos downloads FloreSer
@@ -804,29 +834,14 @@ function initializeFloreSerDownloads() {
       (listEl.children.length === 1 && listEl.querySelector('.muted'))
     );
     if (needsRender) {
-      await renderDownloadsFloreSer();
+      buildDownloadsListFloreSer();
     }
   });
 
-  // Evento para trocar tipo de arquivo
-  const typebar = document.querySelector('#floreser-typebar');
-  if (typebar) {
-    typebar.addEventListener('click', async (e) => {
-      const btn = e.target.closest('.typebtn');
-      if (!btn) return;
-
-      document.querySelectorAll('#floreser-typebar .typebtn').forEach(b => {
-        b.classList.toggle('active', b === btn);
-        b.setAttribute('aria-selected', b === btn ? 'true' : 'false');
-      });
-
-      FLORESER_SELECTED_TYPE = btn.dataset.type; // csv | geojson | shp
-      await renderDownloadsFloreSer();
-    });
+  // Render inicial quando o componente for expandido pela primeira vez
+  if (!downloadCard.classList.contains('collapsed')) {
+    buildDownloadsListFloreSer();
   }
-
-  // Render inicial (conteúdo pronto quando possível)
-  renderDownloadsFloreSer().catch(() => {});
 }
 
 // ---- Inicialização ----
