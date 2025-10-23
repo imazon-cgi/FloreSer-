@@ -773,7 +773,7 @@ function buildDownloadsListFloreSer() {
     
     const title = document.createElement('div');
     title.className = 'format-title';
-    title.textContent = 'CSV anual';
+    title.textContent = '';
     formatCard.appendChild(title);
 
     const ul = document.createElement('ul');
