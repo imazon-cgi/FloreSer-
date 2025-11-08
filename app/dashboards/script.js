@@ -57,6 +57,44 @@ function eqStr(a, b) {
   return normalizeStr(a) === normalizeStr(b);
 }
 
+// ---- Helpers de API e parsing ----
+// Desembrulha respostas no formato { ok, data }
+async function unwrapData(res) {
+  const payload = await res.json();
+  if (payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'ok')) {
+    if (payload.ok === false) {
+      throw new Error(payload.error || 'Falha na API');
+    }
+    return payload.data ?? [];
+  }
+  return Array.isArray(payload) ? payload : [];
+}
+
+// Parser numérico pt-BR ("1.234,56" -> 1234.56)
+function parseNumberPt(value) {
+  if (value == null) return NaN;
+  if (typeof value === 'number') return value;
+  const s = String(value).trim().replace(/\./g, '').replace(/,/g, '.');
+  const n = Number(s);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+// fetch com fallback para prefixo /floreser
+async function apiFetch(path, options = {}) {
+  const urls = path.startsWith('/floreser/') ? [path] : [path, `/floreser${path}`];
+  let lastErr = null;
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { cache: 'no-store', ...options });
+      if (res.ok) return res;
+      lastErr = new Error(`HTTP ${res.status} em ${url}`);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error(`Falha ao buscar ${path}`);
+}
+
 // ---- Helpers UI ----
 
 function showLoader(msg = 'Carregando dados...') {
@@ -121,10 +159,8 @@ let _yearBoundsCache = null;
 async function getDataYearBounds() {
   if (_yearBoundsCache) return _yearBoundsCache;
 
-  const res = await fetch('/area-data', { cache: 'no-store' });
-  if (!res.ok) throw new Error('Falha ao obter /area-data');
-
-  const data = await res.json();
+  const res = await apiFetch('/area-data');
+  const data = await unwrapData(res);
 
   let min = Infinity;
   let max = -Infinity;
@@ -265,9 +301,8 @@ async function loadMap() {
 async function loadStateFilter() {
   try {
     showLoader();
-    const response = await fetch('/lista-estados', { cache: 'no-store' });
-    if (!response.ok) throw new Error('Erro na requisição');
-    let states = await response.json();
+    const response = await apiFetch('/lista-estados');
+    let states = await unwrapData(response);
 
     states = Array.from(new Set(states))
       .sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
@@ -310,9 +345,8 @@ async function loadStateFilter() {
 async function loadMunicipioFilter(state) {
   try {
     showLoader();
-    const response = await fetch(`/lista-municipios/${encodeURIComponent(state)}`, { cache: 'no-store' });
-    if (!response.ok) throw new Error('Erro na requisição');
-    let municipios = await response.json();
+    const response = await apiFetch(`/lista-municipios/${encodeURIComponent(state)}`);
+    let municipios = await unwrapData(response);
 
     municipios = Array.from(new Set(municipios))
       .sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
@@ -409,14 +443,14 @@ function formatCompactNumber(value) {
 
 async function loadChartByState(state = '', municipio = '', startYear = 1986, endYear = 2024) {
   try {
-    const response = await fetch('/area-data', { cache: 'no-store' });
-    const raw = await response.json();
+    const response = await apiFetch('/area-data');
+    const raw = await unwrapData(response);
 
     const data = raw.map(d => ({
       state: d.state,
       name: d.name,
       year: Number(d.year),
-      area: Number(d.area) || 0
+      area: (Number.isFinite(parseNumberPt(d.area)) ? parseNumberPt(d.area) : (Number(d.area) || 0))
     })).filter(d => Number.isFinite(d.year));
 
     const byYears = data.filter(d => d.year >= startYear && d.year <= endYear);
@@ -577,10 +611,15 @@ async function loadChartByState(state = '', municipio = '', startYear = 1986, en
 
 async function loadMunicipioChartByMunicipio  (state = '', startYear = 1986, endYear = 2024) {
   try {
-    const response = await fetch(`/municipios-area-data?startYear=${startYear}&endYear=${endYear}`, { cache: 'no-store' });
-    const data = await response.json();
+    const response = await apiFetch(`/municipios-area-data?startYear=${startYear}&endYear=${endYear}`);
+    const arr = await unwrapData(response);
 
-    const filteredData = state ? data.filter(item => item.state === state) : data;
+    const normalized = arr.map(it => ({
+      ...it,
+      area: (Number.isFinite(parseNumberPt(it.area)) ? parseNumberPt(it.area) : (Number(it.area) || 0))
+    }));
+
+    const filteredData = state ? normalized.filter(item => item.state === state) : normalized;
 
     const top10 = filteredData
       .sort((a, b) => b.area - a.area)

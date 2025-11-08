@@ -7,7 +7,7 @@ const express = require('express');
 const fs      = require('fs');
 const path    = require('path');
 const csv     = require('csv-parser');
-const axios   = require('axios');
+const axios   = require('axios'); // reservado para futuras chamadas
 const iconv   = require('iconv-lite');
 const ee      = require('@google/earthengine');
 const cors    = require('cors');
@@ -37,7 +37,6 @@ const MIME = {
   '.jpeg': 'image/jpeg',
   '.gif': 'image/gif',
 };
-
 function withCharset(type) {
   if (!type) return 'application/octet-stream';
   const needs = type.startsWith('text/')
@@ -45,6 +44,19 @@ function withCharset(type) {
              || type === 'application/json'
              || type === 'application/xml';
   return needs ? `${type}; charset=utf-8` : type;
+}
+
+// ----------------- Helpers numéricos (pt-BR) -----------------
+function parseNumberBR(value) {
+  if (value == null) return NaN;
+  const s = String(value)
+    .trim()
+    // remove separador de milhar comum no BR
+    .replace(/\./g, '')
+    // vírgula decimal vira ponto
+    .replace(/,/g, '.');
+  const n = Number(s);
+  return Number.isFinite(n) ? n : NaN;
 }
 
 // ----------------- Helper p/ erros JSON unificados ----------
@@ -57,7 +69,6 @@ function sendJsonError(res, status, message, err) {
         details: err && (err.message || String(err)),
       });
   } catch (e) {
-    // fallback (raro)
     res.status(status).set('Content-Type', 'application/json; charset=utf-8')
       .end(JSON.stringify({ ok: false, error: message }));
   }
@@ -89,7 +100,6 @@ function initializeEE() {
     });
   return eeReady;
 }
-
 function toTileUrl(mapObj) {
   if (mapObj && mapObj.urlFormat) return mapObj.urlFormat;
   if (mapObj && mapObj.mapid && mapObj.token) {
@@ -97,7 +107,6 @@ function toTileUrl(mapObj) {
   }
   throw new Error('Formato inesperado de getMap() do EE');
 }
-
 async function getSRTMMapUrl() {
   await initializeEE();
   const asset = 'projects/imazon-simex/FLORESER/floreser-collection-9-22-1-ages-sf/floreser-2023-22-1';
@@ -106,7 +115,6 @@ async function getSRTMMapUrl() {
   const map   = img.getMap(vis);
   return toTileUrl(map);
 }
-
 async function getFloreserTileUrl() {
   await initializeEE();
   const fc  = ee.FeatureCollection('projects/imazon-simex/FLORESER/floreser-collection-10-v12-sv-ages-sf');
@@ -125,11 +133,37 @@ function readCsvUtf8(csvPath, srcEnc = CSV_SOURCE_ENCODING) {
 
 // ========================= App =========================
 const app = express();
-
-// CORS (se o front estiver em outra origem/porta)
 app.use(cors({ origin: true }));
 
-// Healthcheck simples
+// 🔧 Normalização robusta: páginas em /app/dashboards/... chamando APIs
+// vira /floreser/... ; estáticos só removem o prefixo; preserva querystring.
+app.use((req, _res, next) => {
+  const url = req.url;
+
+  if (!url.startsWith('/app/dashboards/')) return next();
+
+  // 1) Arquivos estáticos dentro do prefixo
+  if (/^\/app\/dashboards\/.*\.[a-z0-9]+(?:$|\?)/i.test(url)) {
+    req.url = url.replace(/^\/app\/dashboards/, '');
+    return next();
+  }
+
+  // 2) APIs conhecidas (sem extensão) – inclui variação com /floreser/ no meio
+  const m = url.match(/^\/app\/dashboards\/(?:floreser\/)?(lista-estados|lista-municipios(?:\/[^\/\?\#]+)?|area-data|municipios-area-data|municipios-amazonia|srtm-url|floreser-url|healthz)(\/?)(\?.*)?$/i);
+  if (m) {
+    const sub = m[1];
+    const trail = m[2] || '';
+    const qs = m[3] || '';
+    req.url = `/floreser/${sub}${trail}${qs}`;
+    return next();
+  }
+
+  // 3) Demais (provável HTML do dashboard): só remove o prefixo para o handler abaixo
+  req.url = url.replace(/^\/app\/dashboards/, '') || '/';
+  return next();
+});
+
+// -------------------------- Health ---------------------------
 app.get('/healthz', (_req, res) => {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.json({
@@ -152,7 +186,6 @@ app.get(/^\/dataset\/.*\.csv$/i, (req, res, next) => {
       .pipe(res);
   } catch (e) {
     console.error('[CSV static] erro:', e);
-    // Mantém JSON em erro
     sendJsonError(res, 500, 'Erro ao servir CSV', e);
   }
 });
@@ -170,7 +203,8 @@ app.use('/img',     express.static(path.join(ROOT_DIR, 'img'),     { setHeaders:
 
 // ------------------------- Rotas API ---------------------------
 
-app.get('/floreser/municipios-amazonia', (_req, res) => {
+// /municipios-amazonia
+app.get(['/municipios-amazonia', '/floreser/municipios-amazonia'], (_req, res) => {
   try {
     const filePath = LIMITE_AMAZONIA_LEGAL;
 
@@ -205,11 +239,13 @@ app.get('/floreser/municipios-amazonia', (_req, res) => {
     });
   } catch (err) {
     console.error('[/municipios-amazonia] erro inesperado:', err);
+    console.log('LIMITE_AMAZONIA_LEGAL:', LIMITE_AMAZONIA_LEGAL);
     return sendJsonError(res, 500, 'Erro ao obter GeoJSON de municípios (local)', err);
   }
 });
 
-app.get('/floreser-url', async (_req, res) => {
+// URLs de tiles
+app.get(['/floreser-url', '/floreser/floreser-url'], async (_req, res) => {
   try {
     const url = await getFloreserTileUrl();
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -219,8 +255,7 @@ app.get('/floreser-url', async (_req, res) => {
     return sendJsonError(res, 500, 'Erro ao obter URL FLORESER (EE)', err);
   }
 });
-
-app.get('/srtm-url', async (_req, res) => {
+app.get(['/srtm-url', '/floreser/srtm-url'], async (_req, res) => {
   try {
     const url = await getSRTMMapUrl();
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -231,7 +266,8 @@ app.get('/srtm-url', async (_req, res) => {
   }
 });
 
-app.get('/lista-estados', (_req, res) => {
+// Estados
+app.get(['/lista-estados', '/floreser/lista-estados'], (_req, res) => {
   const estados = new Set();
   readCsvUtf8(CSV_FILE)
     .on('data', row => { if (row.state) estados.add(String(row.state).trim()); })
@@ -245,7 +281,8 @@ app.get('/lista-estados', (_req, res) => {
     });
 });
 
-app.get('/lista-municipios/:estado', (req, res) => {
+// Municípios por UF
+app.get(['/lista-municipios/:estado', '/floreser/lista-municipios/:estado'], (req, res) => {
   const uf = String(req.params.estado || '').trim();
   const municipios = new Set();
   readCsvUtf8(CSV_FILE)
@@ -264,12 +301,13 @@ app.get('/lista-municipios/:estado', (req, res) => {
     });
 });
 
-app.get('/area-data', (_req, res) => {
+// Dados de área (serie)
+app.get(['/area-data', '/floreser/area-data'], (_req, res) => {
   const data = [];
   readCsvUtf8(CSV_FILE)
     .on('data', row => {
       const y = Number(row.year);
-      const a = Number(row.area);
+      const a = parseNumberBR(row.area);
       data.push({
         state: row.state,
         name:  row.name,
@@ -287,7 +325,8 @@ app.get('/area-data', (_req, res) => {
     });
 });
 
-app.get('/municipios-area-data', (req, res) => {
+// Ranking municípios (agregado)
+app.get(['/municipios-area-data', '/floreser/municipios-area-data'], (req, res) => {
   const startYear = parseInt(req.query.startYear, 10) || 2008;
   const endYear   = parseInt(req.query.endYear, 10)   || 2024;
 
@@ -295,11 +334,12 @@ app.get('/municipios-area-data', (req, res) => {
   readCsvUtf8(CSV_FILE)
     .on('data', row => {
       const y = Number(row.year);
-      if (row.name && row.area && row.state && Number.isFinite(y) && y >= startYear && y <= endYear) {
+      const a = parseNumberBR(row.area);
+      if (row.name && row.area && row.state && Number.isFinite(y) && Number.isFinite(a) && y >= startYear && y <= endYear) {
         linhas.push({
           municipio: String(row.name).trim(),
           state:     String(row.state).trim(),
-          area:      Number(row.area) || 0
+          area:      a
         });
       }
     })
@@ -323,6 +363,7 @@ app.get('/municipios-area-data', (req, res) => {
 // ----------------------- Dashboards HTML ----------------------
 app.use((req, res, next) => {
   let pathname = req.path;
+
   if (pathname.startsWith('/app/dashboards')) {
     pathname = pathname.replace(/^\/app\/dashboards/, '') || '/';
   }
@@ -346,12 +387,18 @@ app.use((req, res, next) => {
   next();
 });
 
-// 404 (sempre JSON quando pedirem "/api/..."; texto só para páginas estáticas)
-app.use((req, res, next) => {
-  if (req.path.startsWith('/api') || req.path.startsWith('/municipios') ||
-      req.path.startsWith('/lista-') || req.path.startsWith('/area-data') ||
-      req.path.startsWith('/municipios-area-data') ||
-      req.path.startsWith('/srtm-url') || req.path.startsWith('/floreser-url')) {
+// 404 (sempre JSON para rotas de API)
+app.use((req, res, _next) => {
+  if (
+    req.path.startsWith('/api') ||
+    req.path.startsWith('/municipios') ||
+    req.path.startsWith('/lista-') ||
+    req.path.startsWith('/area-data') ||
+    req.path.startsWith('/municipios-area-data') ||
+    req.path.startsWith('/srtm-url') ||
+    req.path.startsWith('/floreser-url') ||
+    req.path.startsWith('/floreser')
+  ) {
     return sendJsonError(res, 404, `Rota ${req.path} não encontrada`);
   }
   res.status(404).set('Content-Type', 'text/plain; charset=utf-8');
