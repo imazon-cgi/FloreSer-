@@ -317,7 +317,7 @@ async function loadStateFilter() {
 
     const optAL = document.createElement('option');
     optAL.value = '__AMAZONIA_LEGAL__';
-    optAL.textContent = 'Amazônia Legal';
+    optAL.textContent = 'Bioma Amazônia';
     stateFilter.appendChild(optAL);
 
     states.forEach(state => {
@@ -331,7 +331,7 @@ async function loadStateFilter() {
     const stateFilter = document.getElementById('stateFilter');
     if (stateFilter) {
       stateFilter.innerHTML = `<option value="">Todos os Estados</option>
-                               <option value="__AMAZONIA_LEGAL__">Amazônia Legal</option>`;
+                               <option value="__AMAZONIA_LEGAL__">Bioma Amazônia</option>`;
     }
     showWarningModal(
       'Não foi possível carregar os Estados',
