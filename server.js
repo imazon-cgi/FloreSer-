@@ -18,6 +18,32 @@ const ROOT_DIR      = __dirname;
 const DASHBOARD_DIR = path.join(ROOT_DIR, 'app', 'dashboards');
 const DATASET_DIR   = path.join(ROOT_DIR, 'dataset');
 
+// ================= Banco (fonte dos dados; fallback: CSV) =================
+require('dotenv').config({ path: path.join(ROOT_DIR, '.env'), quiet: true });
+const BANCO_OK = !!(process.env.DATABASE_URL || '').trim();
+const FLO_VIEW = (process.env.FLORESER_DB_VIEW || 'imazongeo.vw_floreser').trim();
+if (!/^[A-Za-z_]\w*(\.[A-Za-z_]\w*)?$/.test(FLO_VIEW)) throw new Error(`FLORESER_DB_VIEW inválida: ${FLO_VIEW}`);
+let _pool = null;
+function pool() {
+  if (!_pool) {
+    const { Pool } = require('pg');
+    _pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 4, connectionTimeoutMillis: 3000, idleTimeoutMillis: 30000, statement_timeout: 120000
+    });
+    _pool.on('error', e => console.warn('[banco] conexão ociosa perdida:', e.message));
+  }
+  return _pool;
+}
+// Loga a fonte só quando muda, para não repetir a cada requisição
+const _fonteAtual = new Map();
+function fonte(rota, msg) {
+  if (_fonteAtual.get(rota) === msg) return;
+  _fonteAtual.set(rota, msg);
+  console.log(`FloreSer ${rota}: ${msg}`);
+}
+console.log('Banco do FloreSer:', BANCO_OK ? FLO_VIEW : 'DATABASE_URL não definida (só CSV)');
+
 const CSV_FILE = path.join(DATASET_DIR, 'floreser-9-22-1-ages-sf.csv');
 const LIMITE_AMAZONIA_LEGAL = path.join(DATASET_DIR, 'limite_municipios_amz_legal.geojson');
 const CSV_SOURCE_ENCODING = process.env.CSV_SOURCE_ENCODING || 'latin1';
@@ -267,7 +293,15 @@ app.get(['/srtm-url', '/floreser/srtm-url'], async (_req, res) => {
 });
 
 // Estados
-app.get(['/lista-estados', '/floreser/lista-estados'], (_req, res) => {
+app.get(['/lista-estados', '/floreser/lista-estados'], async (_req, res) => {
+  if (BANCO_OK) {
+    try {
+      const r = await pool().query(`SELECT DISTINCT estado FROM ${FLO_VIEW} WHERE estado IS NOT NULL ORDER BY estado`);
+      fonte('/lista-estados', `lendo do banco (${FLO_VIEW})`);
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      return res.json({ ok: true, data: r.rows.map(x => x.estado) });
+    } catch (e) { fonte('/lista-estados', `banco indisponível (${e.message}); lendo do CSV`); }
+  }
   const estados = new Set();
   readCsvUtf8(CSV_FILE)
     .on('data', row => { if (row.state) estados.add(String(row.state).trim()); })
@@ -282,8 +316,17 @@ app.get(['/lista-estados', '/floreser/lista-estados'], (_req, res) => {
 });
 
 // Municípios por UF
-app.get(['/lista-municipios/:estado', '/floreser/lista-municipios/:estado'], (req, res) => {
+app.get(['/lista-municipios/:estado', '/floreser/lista-municipios/:estado'], async (req, res) => {
   const uf = String(req.params.estado || '').trim();
+  if (BANCO_OK) {
+    try {
+      const r = await pool().query(
+        `SELECT DISTINCT municipio FROM ${FLO_VIEW} WHERE estado = $1 AND municipio IS NOT NULL ORDER BY municipio`, [uf]);
+      fonte('/lista-municipios', `lendo do banco (${FLO_VIEW})`);
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      return res.json({ ok: true, data: r.rows.map(x => x.municipio) });
+    } catch (e) { fonte('/lista-municipios', `banco indisponível (${e.message}); lendo do CSV`); }
+  }
   const municipios = new Set();
   readCsvUtf8(CSV_FILE)
     .on('data', row => {
@@ -302,7 +345,16 @@ app.get(['/lista-municipios/:estado', '/floreser/lista-municipios/:estado'], (re
 });
 
 // Dados de área (serie)
-app.get(['/area-data', '/floreser/area-data'], (_req, res) => {
+app.get(['/area-data', '/floreser/area-data'], async (_req, res) => {
+  if (BANCO_OK) {
+    try {
+      const r = await pool().query(
+        `SELECT estado AS state, municipio AS name, ano AS year, area_ha AS area FROM ${FLO_VIEW}`);
+      fonte('/area-data', `lendo do banco (${FLO_VIEW})`);
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      return res.json({ ok: true, data: r.rows });
+    } catch (e) { fonte('/area-data', `banco indisponível (${e.message}); lendo do CSV`); }
+  }
   const data = [];
   readCsvUtf8(CSV_FILE)
     .on('data', row => {
@@ -326,10 +378,21 @@ app.get(['/area-data', '/floreser/area-data'], (_req, res) => {
 });
 
 // Ranking municípios (agregado)
-app.get(['/municipios-area-data', '/floreser/municipios-area-data'], (req, res) => {
+app.get(['/municipios-area-data', '/floreser/municipios-area-data'], async (req, res) => {
   const startYear = parseInt(req.query.startYear, 10) || 2008;
   const endYear   = parseInt(req.query.endYear, 10)   || 2024;
 
+  if (BANCO_OK) {
+    try {
+      const r = await pool().query(
+        `SELECT municipio, estado AS state, sum(area_ha) AS area FROM ${FLO_VIEW}
+         WHERE ano BETWEEN $1 AND $2 AND municipio IS NOT NULL
+         GROUP BY municipio, estado ORDER BY area DESC`, [startYear, endYear]);
+      fonte('/municipios-area-data', `lendo do banco (${FLO_VIEW})`);
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      return res.json({ ok: true, data: r.rows.map(x => ({ municipio: x.municipio, state: x.state, area: Number(x.area) })) });
+    } catch (e) { fonte('/municipios-area-data', `banco indisponível (${e.message}); lendo do CSV`); }
+  }
   const linhas = [];
   readCsvUtf8(CSV_FILE)
     .on('data', row => {
