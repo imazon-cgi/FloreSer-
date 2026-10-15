@@ -142,8 +142,8 @@ function getYearFilters() {
   const startYear = parseInt(startYearEl?.value, 10) || 1986;
   // Se existir o select endYear, usa o valor dele; senão, usa ano atual - 1
   const endYear   = endYearEl
-    ? (parseInt(endYearEl.value, 10) || (new Date().getFullYear() - 1))
-    : (new Date().getFullYear() - 1);
+    ? (parseInt(endYearEl.value, 10) || _dataMaxYear)
+    : _dataMaxYear;
 
   // Garantia: ano inicial não pode ser maior que ano final
   if (startYear > endYear) {
@@ -155,6 +155,8 @@ function getYearFilters() {
   return { startYear, endYear };
 }
 
+// Último ano com dados no dataset; definido no load (fallback: ano atual - 1)
+let _dataMaxYear = new Date().getFullYear() - 1;
 let _yearBoundsCache = null;
 async function getDataYearBounds() {
   if (_yearBoundsCache) return _yearBoundsCache;
@@ -194,7 +196,7 @@ async function loadMap() {
     const map = L.map('map').setView([-3.4653, -62.2159], 6);
 
     const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: 'OpenStreetMap' });
-    const dark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', { attribution: 'CartoDB Dark' });
+    const dark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png?key=cb1_4awi_1_7d7bd486fd79a1eb352a8439', { attribution: 'CartoDB Dark' });
     const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'ESRI Satellite' });
 
     dark.addTo(map);
@@ -759,8 +761,8 @@ document.getElementById('removeFilter').addEventListener('click', function() {
   document.getElementById('stateFilter').value = '';
   document.getElementById('municipioFilter').innerHTML = '<option value="">Todos os Municípios</option>';
   document.getElementById('startYear').value = '1986';
-  document.getElementById('endYear').value = String(new Date().getFullYear() - 1);
-  
+  document.getElementById('endYear').value = String(_dataMaxYear);
+
   // Aplicar os filtros resetados
   applyYearFilter();
 });
@@ -783,7 +785,7 @@ function buildDownloadsListFloreSer() {
 
   function renderYearChips() {
     const currentType = 'csv'; // Somente CSV disponível
-    const currentYear = new Date().getFullYear() - 1;
+    const currentYear = _dataMaxYear; // último ano com dados (evita chip de ano inexistente)
     const anos = [];
     
     for (let year = currentYear; year >= 1986; year--) {
@@ -886,9 +888,17 @@ function initializeFloreSerDownloads() {
 // ---- Inicialização ----
 window.addEventListener('DOMContentLoaded', async () => {
   const endYearEl = document.getElementById('endYear');
-  if (endYearEl) {
-    endYearEl.value = String(new Date().getFullYear() - 1);
-  }
+  // Ano final padrão = último ano do dataset; evita o aviso "Ajuste de período"
+  // no carregamento e remove dos selects os anos sem dados (ex.: ano atual).
+  try {
+    const { maxYear } = await getDataYearBounds();
+    _dataMaxYear = maxYear;
+    for (const id of ['startYear', 'endYear']) {
+      const sel = document.getElementById(id);
+      if (sel) [...sel.options].forEach(o => { if (Number(o.value) > maxYear) o.remove(); });
+    }
+  } catch (e) { /* sem /area-data: mantém o padrão */ }
+  if (endYearEl) endYearEl.value = String(_dataMaxYear);
   showLoader();
   await loadStateFilter();
   await loadMap();
